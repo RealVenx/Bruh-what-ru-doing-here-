@@ -1,0 +1,223 @@
+import telebot
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+
+# Bot tokeningizni kiriting
+TOKEN = '8364541639:AAGGjb7AEQK1VtDYp7fP_gBcVDhvruARkdE' 
+bot = telebot.TeleBot(TOKEN)
+
+# Owner va Admin ID
+OWNER_ID = 1406109190
+ADMIN_ID = 1406109190
+ADMINS = [OWNER_ID, ADMIN_ID]
+
+# Vaqtinchalik xotira (State saqlash uchun)
+users_state = {}
+users_data = {}
+blacklist = set()
+admin_state = {}
+
+# Asosiy menyu tugmalari
+def main_menu():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(KeyboardButton("Robux sotib olish"))
+    markup.add(KeyboardButton("Info"), KeyboardButton("Support"))
+    return markup
+
+@bot.message_handler(commands=['start'])
+def start_cmd(message):
+    user_id = message.from_user.id
+    if user_id in blacklist:
+        return # Qora ro'yxatdagilarga umuman javob bermaydi
+    
+    users_state[user_id] = 'start'
+    bot.send_message(
+        message.chat.id, 
+        "Assalamu alaykum! Robux servisimizga xush kelibsiz!", 
+        reply_markup=main_menu()
+    )
+
+@bot.message_handler(func=lambda message: message.text == "Info")
+def info_cmd(message):
+    if message.from_user.id in blacklist: return
+    bot.send_message(message.chat.id, "Bizning bot orqali ishonchli tarzda Robux xarid qilishingiz mumkin.")
+
+@bot.message_handler(func=lambda message: message.text == "Support")
+def support_cmd(message):
+    if message.from_user.id in blacklist: return
+    bot.send_message(message.chat.id, "Yordam uchun adminlarga murojaat qiling.")
+
+@bot.message_handler(func=lambda message: message.text == "Robux sotib olish")
+def buy_robux(message):
+    user_id = message.from_user.id
+    if user_id in blacklist: return
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("Ha", callback_data="group_yes"),
+        InlineKeyboardButton("Yo'q", callback_data="group_no")
+    )
+    bot.send_message(
+        message.chat.id,
+        "Siz silkroad games: roblox.com/communities/1110492114/SilkRoad-Games\n"
+        "Guruhida 14 kundan ortiq mavjudmisiz?\n"
+        "Agar yo'q bo'lsa robux sizga tushmaydi.",
+        reply_markup=markup,
+        disable_web_page_preview=True
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data in ["group_yes", "group_no"])
+def group_check_callback(call):
+    user_id = call.from_user.id
+    if user_id in blacklist: return
+    
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    if call.data == "group_no":
+        bot.send_message(call.message.chat.id, "Amaliyot to'xtatildi.")
+        users_state[user_id] = 'start'
+    elif call.data == "group_yes":
+        users_state[user_id] = 'waiting_photo'
+        text = (
+            "Karta raqam:\n"
+            "5614682214920136 (E.I)\n\n"
+            "Robux narxlar: https://t.me/HOZIRCHA_NARXLAR_KIRITILMAGAN\n"
+            "Chek yuboring."
+        )
+        bot.send_message(call.message.chat.id, text, disable_web_page_preview=True)
+
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    user_id = message.from_user.id
+    if user_id in blacklist: return
+    
+    if users_state.get(user_id) == 'waiting_photo':
+        photo_id = message.photo[-1].file_id
+        users_data[user_id] = {'photo': photo_id}
+        users_state[user_id] = 'waiting_username'
+        
+        bot.send_message(
+            message.chat.id, 
+            "Rasm qabul qilindi✓, username kiriting.\n"
+            "(Ogohlantirish! Roblox usernameni adashtirib yubormang!)"
+        )
+
+@bot.message_handler(func=lambda message: users_state.get(message.from_user.id) == 'waiting_username')
+def handle_username(message):
+    user_id = message.from_user.id
+    if user_id in blacklist: return
+    
+    roblox_username = message.text
+    users_data[user_id]['roblox_username'] = roblox_username
+    users_state[user_id] = 'waiting_confirmation'
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("Roziman", callback_data="confirm_yes"),
+        InlineKeyboardButton("Yo'q", callback_data="confirm_no")
+    )
+    
+    bot.send_message(
+        message.chat.id,
+        f"{roblox_username} Chekni jo'natishga rozimisiz?\n"
+        "Ogohlantirish Sohta chek qilish blockga olib keladi!",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data in ["confirm_yes", "confirm_no"])
+def confirm_callback(call):
+    user_id = call.from_user.id
+    if user_id in blacklist: return
+    
+    bot.delete_message(call.message.chat.id, call.message.message_id)
+    
+    if call.data == "confirm_no":
+        bot.send_message(call.message.chat.id, "Amaliyot to'xtatildi.")
+        users_state[user_id] = 'start'
+    elif call.data == "confirm_yes":
+        bot.send_message(call.message.chat.id, "Amaliyot bajarilmoqda...")
+        
+        # Adminga jo'natish qismi
+        data = users_data.get(user_id, {})
+        photo_id = data.get('photo')
+        roblox_username = data.get('roblox_username')
+        
+        # Foydalanuvchi akkaunti ssilkasi
+        if call.from_user.username:
+            tg_username = f"@{call.from_user.username}"
+        else:
+            tg_username = f"<a href='tg://user?id={user_id}'>Foydalanuvchi ({user_id})</a>"
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("Accept", callback_data=f"admin_accept_{user_id}"),
+            InlineKeyboardButton("Reject", callback_data=f"admin_reject_{user_id}"),
+            InlineKeyboardButton("Block", callback_data=f"admin_block_{user_id}")
+        )
+        
+        caption = f"Yangi buyurtma:\nTelegram: {tg_username}\nRoblox USERNAME: {roblox_username}"
+        
+        # Barcha adminlarga xabarni yuborish
+        for admin in set(ADMINS):
+            try:
+                bot.send_photo(admin, photo_id, caption=caption, reply_markup=markup, parse_mode='HTML')
+            except Exception as e:
+                pass
+                
+        users_state[user_id] = 'start' # Holatni tozalash
+
+# ==================== ADMIN QISMI ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
+def admin_action(call):
+    admin_id = call.from_user.id
+    if admin_id not in ADMINS: return
+    
+    parts = call.data.split('_')
+    action = parts[1]
+    target_user_id = int(parts[2])
+    
+    if action == "accept":
+        bot.edit_message_caption("✅ Qabul qilindi!", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
+        try:
+            bot.send_message(target_user_id, "Chek qabul qilindi✓ Biroz kuting robux tushmoqda..")
+        except:
+            bot.answer_callback_query(call.id, "Foydalanuvchiga xabar borishda xatolik!")
+            
+    elif action == "reject":
+        admin_state[admin_id] = {'action': 'reject', 'user_id': target_user_id}
+        bot.send_message(admin_id, f"Rad etish sababini kiriting (User ID: {target_user_id}):")
+        bot.edit_message_caption("❌ Rad etildi.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
+        
+    elif action == "block":
+        admin_state[admin_id] = {'action': 'block', 'user_id': target_user_id}
+        bot.send_message(admin_id, f"Bloklash sababini kiriting (User ID: {target_user_id}):")
+        bot.edit_message_caption("🚫 Bloklandi.", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
+
+@bot.message_handler(func=lambda message: message.from_user.id in ADMINS and message.from_user.id in admin_state)
+def admin_reason_handler(message):
+    admin_id = message.from_user.id
+    state_info = admin_state[admin_id]
+    action = state_info['action']
+    target_user_id = state_info['user_id']
+    reason = message.text
+    
+    if action == 'reject':
+        try:
+            bot.send_message(target_user_id, f"Buyurtmangiz rad etildi.\nSabab: {reason}")
+            bot.send_message(admin_id, "Foydalanuvchiga sabab yuborildi.")
+        except:
+            bot.send_message(admin_id, "Foydalanuvchi botni bloklagan bo'lishi mumkin.")
+            
+    elif action == 'block':
+        blacklist.add(target_user_id) # Qora ro'yxatga qo'shish
+        try:
+            bot.send_message(target_user_id, f"Siz botdan bloklandingiz.\nSabab: {reason}")
+        except:
+            pass
+        bot.send_message(admin_id, "Foydalanuvchi bloklandi va unga sabab yuborildi. U qora ro'yxatga kiritildi.")
+        
+    # Admin holatini tozalash
+    del admin_state[admin_id]
+
+if __name__ == "__main__":
+    print("Bot muvaffaqiyatli ishga tushdi...")
+    bot.polling(none_stop=True)
